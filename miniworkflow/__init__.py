@@ -1,109 +1,6 @@
-from uuid import uuid4
-
-__author__ = 'Juan'
-
-class MiniWorkflowProgram(object):
-    def __init__(self, node):
-        self.active = set([node])
-
-
-#class NodeState:
-#    WAITING = "waiting"
-#    COMPLETE = "complete" #
-#    UNKNOWN = "unknown"
-
-
-class PrintDecomposition(object):
-    def execute(self, node, context):
-        print node.description
-
-
-class Task(object):
-    def __init__(self, decomposition):
-        self.decomposition = decomposition
-
-    def execute(self, node, context):
-        self.decomposition.execute(node, context)
-        return TaskResult.COMPLETED
-
-        #class Node(object):
-
-#    def __init__(self, spec):
-#        self.spec = spec
-#        self.state = NodeState.READY
-
-
-class NotReadyException(Exception):
-    pass
-
-
 class TaskResult(object):
     COMPLETED = "completed"
     WAIT = "wait"
-
-
-class NodeSpec(object):
-    def get_digraph_node(self):
-        return "node_%s [label = \"%s\"]\n" % (self.description, self.description)
-
-    def get_digraph_rels(self):
-        d = ''
-        for transition in self.out_transitions:
-            d += "node_%s -> node_%s\n" % (self.description, transition.target_node.description)
-        return d
-
-    def __repr__(self):
-        return "<%s '%s' at 0x%x>" % (self.__class__.__name__, self.description, id(self))
-
-    def accept(self, visitor):
-        visitor.visit_node(self)
-        for t in self.out_transitions:
-            t.accept(visitor)
-
-    def __init__(self, description, uuid=None):
-        self.uuid = uuid or str(uuid4())
-        self.out_transitions = []
-        self.description = description
-        self.tasks = []
-        self.precondition = None
-
-    def add_task(self, t):
-        self.tasks.append(t)
-
-    def set_condition(self, c):
-        self.precondition = c
-
-    def connect(self, transition):
-        self.out_transitions.append(transition)
-
-    def ready(self):
-        return (self.precondition is None or self.precondition.eval(self)) and self.specialized_ready()
-
-    def execute(self, ctxt):
-        if not self.ready():
-            raise NotReadyException
-        if all(t.execute(self, ctxt) == TaskResult.COMPLETED for t in self.tasks):
-            self.do_transitions(ctxt)
-        else:
-            ctxt.add_wait(self)
-
-    def completed(self, ctxt):
-        ctxt.completed(self)
-        self.do_transitions(ctxt)
-
-    def do_transitions(self, ctxt):
-        [t.take(self) for t in self.out_transitions]
-
-    def specialized_ready(self):
-        return True
-
-
-class AndNode(NodeSpec):
-    def specialized_ready(self):
-        return self.all_in_transitions_taken()
-
-    def all_in_transitions_taken(self):
-        pass
 
 
 class Transition(object):
@@ -114,20 +11,15 @@ class Transition(object):
 
     def inv_connect(self, node):
         self.source_node = node
+        self.target_node.in_transitions.append(self)
 
-    def take(self, n):
-        if self.eval(n):
-            self.target_node.activate()
 
     def accept(self, visitor):
         if visitor.visit_transition(self):
             self.target_node.accept(visitor)
 
-    def node(self):
-        return self.target_node
-
-    def eval(self, node):
-        return self.condition is None or self.condition.eval(node)
+    def eval(self, workflow, node):
+        return self.condition is None or self.condition(workflow, node)
 
 
 class BaseVisitor(object):
@@ -166,7 +58,7 @@ class DotVisitor(BaseVisitor):
         nodes = []
         arcs = []
         for n in self.visited:
-            if not isinstance(n, NodeSpec):
+            if not isinstance(n, Node):
                 continue
             nodes.append(n.get_digraph_node())
             arcs.append(n.get_digraph_rels())
@@ -185,33 +77,169 @@ class WorkflowEvent(object):
     NODE_COMPLETED = "node_completed"
 
 
-class Workflow(object):
-    def __init__(self, activated_nodes, waiting, end_node, observer):
-        self.activated_nodes = activated_nodes
-        self.end_node = end_node
-        self.waiting = waiting
-        self.observer = observer
+class WorkflowObserver(object):
+    def __init__(self):
+        self.notifications = {}
 
-    def completed(self, node):
-        self.observer.notify(WorkflowEvent.NODE_COMPLETED, node)
+    def notify(self, event, data):
+        print "%s node %s" % (event, data)
+        self.notifications.setdefault(event, []).append(data)
+
+    def get(self, event):
+        return self.notifications.get(event, [])
+
+
+def NodeIterator(workflow):
+    active = workflow.active_nodes.copy()
+    while len(active) > 0:
+        for node_uuid in active:
+            node = active[node_uuid]
+            del workflow.active_nodes[node_uuid]
+            yield node
+        active = workflow.active_nodes.copy()
+
+
+class MiniWorkflow(BaseVisitor):
+    def collect_nodes(self, start_node):
+        start_node.accept(self)
+
+    def __init__(self, start_node, state=None, active_nodes=None):
+        super(MiniWorkflow, self).__init__()
+        self.state = state or {}
+        self.start_node = start_node
+        self.activation_trace = []
+        self.waiting_trace = []
+        self.waiting_list = []
+        self.active_nodes = not active_nodes is None and active_nodes or {}
+        self.executed_trace = []
+        self.node_iterator = NodeIterator(self)
+        self.observer = WorkflowObserver()
+        self.nodes = {}
+        self.collect_nodes(start_node)
+        self.__state_keys = ['state', 'activation_trace', 'waiting_trace', 'executed_trace', 'waiting_list']
+
+    def get_state(self):
+        return dict([(k, getattr(self, k)) for k in
+                     self.__state_keys])
+
+    def set_state(self, s):
+        for k in self.__state_keys:
+            setattr(self, k, s[k])
+
+    def _visit_node(self, node):
+        self.nodes[node.uuid()] = node
+
+    def update_state(self, update):
+        self.state.update(update)
+
+    def has_executed(self, a_node):
+        return (a_node.uuid() in self.executed_trace and
+                not a_node.uuid() in self.waiting_list and
+                not a_node.uuid() in self.active_nodes)
+
+
+    def fetch(self, ):
+        return self.node_iterator.next()
+
+    def step(self, ):
+        node = self.fetch()
+        self.execute(node)
 
     def run(self):
-        ready_nodes = [node for node in self.activated_nodes if self.activated_nodes[node].ready()]
-        while len(ready_nodes) > 0:
-            for node_uuid in ready_nodes:
-                node = self.activated_nodes[node_uuid]
-                del self.activated_nodes[node_uuid]
-                self.observer.notify(WorkflowEvent.NODE_EXECUTE, node)
-                node.execute(self)
-            ready_nodes = [node for node in self.activated_nodes if self.activated_nodes[node].ready()]
+        while True:
+            try:
+                self.step()
+            except StopIteration:
+                break
 
-    def activate(self, node):
-        self.activated_nodes[str(uuid4())] = node
+    def activate(self, a_node):
+        self.observer.notify("activating", a_node)
+        self.activation_trace.append(a_node.uuid())
+        self.active_nodes[a_node.uuid()] = a_node
 
-    def complete_by_id(self, uuid):
-        self.waiting[uuid].completed(self)
-        self.run()
+    def waiting(self, node):
+        self.waiting_trace.append(node.uuid())
+        self.waiting_list.append(node.uuid())
 
-    def add_wait(self, node):
-        self.observer.notify(WorkflowEvent.NODE_WAIT, node)
-        self.waiting[node.uuid] = node
+    def completed(self, node):
+        if node.uuid() in self.waiting_list:
+            self.waiting_list.remove(node.uuid())
+        self.executed_trace.append(node.uuid())
+        # signal transitions
+        for transition in node.out_transitions:
+            if transition.eval(self, node) and transition.target_node.can_execute_in(self):
+                self.activate(transition.target_node)
+
+    def execute(self, node):
+        self.observer.notify("executing", node)
+        node.execute(self)
+
+    def complete_by_uuid(self, uuid, data):
+        self.nodes[uuid].complete(self, data)
+        self.node_iterator = NodeIterator(self)
+
+
+class Node(object):
+    def __init__(self, description, activation_policy=None):
+        self.activation_policy = activation_policy or AlwaysActivatePolicy()
+        self.in_transitions = []
+        self.out_transitions = []
+        self.description = description
+        self.decomposition_factory = None
+
+    def __repr__(self):
+        return "<%s object at 0x%x ('%s')>" % (self.__class__.__name__, id(self), self.description)
+
+    def accept(self, visitor):
+        visitor.visit_node(self)
+        for t in self.out_transitions:
+            t.accept(visitor)
+
+    def execute_transitions(self, context):
+        pass
+
+    def uuid(self):
+        return self.description
+
+    def connect(self, transition):
+        self.out_transitions.append(transition)
+        transition.inv_connect(self)
+
+    def execute(self, workflow):
+        if self.decomposition_factory:
+            response = self.decomposition_factory.get_instance().execute(self, workflow)
+        else:
+            response = TaskResult.COMPLETED
+        {
+            TaskResult.COMPLETED: workflow.completed,
+            TaskResult.WAIT: workflow.waiting
+        }[response](self)
+
+
+    def set_decomposition_factory(self, decomposition_factory):
+        self.decomposition_factory = decomposition_factory
+
+    def can_execute_in(self, workflow):
+        return self.activation_policy.can_activate(self, workflow)
+
+    def complete(self, workflow, data):
+        self.process_async_completion(workflow, data)
+        workflow.completed(self)
+
+    def process_async_completion(self, workflow, data):
+        pass
+
+
+class AndActivationPolicy(object):
+    """
+    Wait for all previous nodes to be activated
+    """
+
+    def can_activate(self, node, workflow):
+        print node, node.in_transitions
+        return all(workflow.has_executed(t.source_node) for t in node.in_transitions)
+
+
+class AlwaysActivatePolicy(object):
+    def can_activate(self, *_):
+        return True
