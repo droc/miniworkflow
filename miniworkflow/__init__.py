@@ -43,9 +43,8 @@ class TaskResult(object):
 
 
 class NodeSpec(object):
-
     def get_digraph_node(self):
-        return "node_%s [label = \"%s\"]\n" %(self.description, self.description)
+        return "node_%s [label = \"%s\"]\n" % (self.description, self.description)
 
     def get_digraph_rels(self):
         d = ''
@@ -93,7 +92,7 @@ class NodeSpec(object):
         self.do_transitions(ctxt)
 
     def do_transitions(self, ctxt):
-        [t.take() for t in self.out_transitions if t.eval(self)]
+        [t.take(self) for t in self.out_transitions]
 
     def specialized_ready(self):
         return True
@@ -111,6 +110,14 @@ class Transition(object):
     def __init__(self, target_node, condition=None):
         self.condition = condition
         self.target_node = target_node
+        self.source_node = None
+
+    def inv_connect(self, node):
+        self.source_node = node
+
+    def take(self, n):
+        if self.eval(n):
+            self.target_node.activate()
 
     def accept(self, visitor):
         if visitor.visit_transition(self):
