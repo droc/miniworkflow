@@ -90,33 +90,41 @@ class WorkflowObserver(object):
 
 
 def NodeIterator(workflow):
-    active = workflow.active_nodes.copy()
+    active = workflow.active_nodes[:]
     while len(active) > 0:
         for node_uuid in active:
-            node = active[node_uuid]
-            del workflow.active_nodes[node_uuid]
+            node = workflow.nodes[node_uuid]
+            workflow.active_nodes.remove(node_uuid)
             yield node
-        active = workflow.active_nodes.copy()
+        active = workflow.active_nodes[:]
 
 
 class MiniWorkflow(BaseVisitor):
     def collect_nodes(self, start_node):
         start_node.accept(self)
 
-    def __init__(self, start_node, state=None, active_nodes=None):
+    def __init__(self, start_node, state=None):
         super(MiniWorkflow, self).__init__()
         self.state = state or {}
         self.start_node = start_node
         self.activation_trace = []
         self.waiting_trace = []
         self.waiting_list = []
-        self.active_nodes = not active_nodes is None and active_nodes or {}
+        self.active_nodes = [start_node.uuid()]
         self.executed_trace = []
         self.node_iterator = NodeIterator(self)
         self.observer = WorkflowObserver()
-        self.nodes = {}
-        self.collect_nodes(start_node)
-        self.__state_keys = ['state', 'activation_trace', 'waiting_trace', 'executed_trace', 'waiting_list']
+        self.__nodes = None
+        self.__state_keys = ['state', 'activation_trace', 'waiting_trace', 'executed_trace', 'waiting_list',
+                             'active_nodes']
+
+    def get_node(self):
+        if self.__nodes is None:
+            self.__nodes = {}
+            self.collect_nodes(self.start_node)
+        return self.__nodes
+
+    nodes = property(get_node)
 
     def get_state(self):
         return dict([(k, getattr(self, k)) for k in
@@ -127,7 +135,7 @@ class MiniWorkflow(BaseVisitor):
             setattr(self, k, s[k])
 
     def _visit_node(self, node):
-        self.nodes[node.uuid()] = node
+        self.__nodes[node.uuid()] = node
 
     def update_state(self, update):
         self.state.update(update)
@@ -155,7 +163,7 @@ class MiniWorkflow(BaseVisitor):
     def activate(self, a_node):
         self.observer.notify("activating", a_node)
         self.activation_trace.append(a_node.uuid())
-        self.active_nodes[a_node.uuid()] = a_node
+        self.active_nodes.append(a_node.uuid())
 
     def waiting(self, node):
         self.waiting_trace.append(node.uuid())
@@ -186,6 +194,16 @@ class Node(object):
         self.out_transitions = []
         self.description = description
         self.decomposition_factory = None
+
+    def get_digraph_node(self):
+        return self.description + "\n"
+
+    def get_digraph_rels(self):
+        r = []
+        for t in self.out_transitions:
+            assert isinstance(t, Transition)
+            r.append("%s -> %s\n" % (self.description, t.target_node.description))
+        return "\n".join(r)
 
     def __repr__(self):
         return "<%s object at 0x%x ('%s')>" % (self.__class__.__name__, id(self), self.description)
