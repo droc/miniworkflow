@@ -7,10 +7,10 @@ class MiniWorkflowProgram(object):
         self.active = {node}
 
 
-class NodeState:
-    WAITING = "waiting"
-    COMPLETE = "complete" #
-    UNKNOWN = "unknown"
+#class NodeState:
+#    WAITING = "waiting"
+#    COMPLETE = "complete" #
+#    UNKNOWN = "unknown"
 
 
 class PrintDecomposition(object):
@@ -43,13 +43,16 @@ class TaskResult(object):
 
 
 class NodeSpec(object):
+
+    def __repr__(self):
+        return "<%s '%s' at 0x%x>" % (self.__class__.__name__, self.description, id(self))
+
     def __init__(self, description, uuid=None):
         self.uuid = uuid or str(uuid4())
         self.out_transitions = []
         self.description = description
         self.tasks = []
         self.precondition = None
-        self.__state = NodeState.UNKNOWN
 
     def add_task(self, t):
         self.tasks.append(t)
@@ -72,6 +75,7 @@ class NodeSpec(object):
             ctxt.add_wait(self)
 
     def completed(self, ctxt):
+        ctxt.completed(self)
         self.do_transitions(ctxt)
 
     def do_transitions(self, ctxt):
@@ -87,14 +91,24 @@ class Transition(object):
         return self.target_node
 
     def eval(self, node):
-        return self.condition is None or self.condition.eval(self)
+        return self.condition is None or self.condition.eval(node)
+
+
+class WorkflowEvent(object):
+    NODE_WAIT = "node_wait"
+    NODE_EXECUTE = "node_execute"
+    NODE_COMPLETED = "node_completed"
 
 
 class Workflow(object):
-    def __init__(self, activated_nodes, waiting, end_node):
+    def __init__(self, activated_nodes, waiting, end_node, observer):
         self.activated_nodes = activated_nodes
         self.end_node = end_node
         self.waiting = waiting
+        self.observer = observer
+
+    def completed(self, node):
+        self.observer.notify(WorkflowEvent.NODE_COMPLETED, node)
 
     def run(self):
         ready_nodes = [node for node in self.activated_nodes if self.activated_nodes[node].ready()]
@@ -102,6 +116,7 @@ class Workflow(object):
             for node_uuid in ready_nodes:
                 node = self.activated_nodes[node_uuid]
                 del self.activated_nodes[node_uuid]
+                self.observer.notify(WorkflowEvent.NODE_EXECUTE, node)
                 node.execute(self)
             ready_nodes = [node for node in self.activated_nodes if self.activated_nodes[node].ready()]
 
@@ -113,4 +128,5 @@ class Workflow(object):
         self.run()
 
     def add_wait(self, node):
+        self.observer.notify(WorkflowEvent.NODE_WAIT, node)
         self.waiting[node.uuid] = node
