@@ -57,3 +57,8 @@ class TestWorkflowEngine(TestCase):
         w2 = Workflow(w.activated_nodes, w.waiting, node3, observer2)
         w2.complete_by_id(async_task.uuid)
         assert_that(observer2.get(WorkflowEvent.NODE_EXECUTE), has_item(node3))
+
+    def test_loop(self):
+        start = NodeSpec("first")
+
+        end = NodeSpec("end")
