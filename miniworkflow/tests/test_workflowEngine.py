@@ -1,6 +1,7 @@
+import pydot
 from unittest import TestCase
 from hamcrest import assert_that, has_length, has_item
-from miniworkflow import NodeSpec, Transition, PrintDecomposition, Task, Workflow, TaskResult, WorkflowEvent
+from miniworkflow import NodeSpec, Transition, PrintDecomposition, Task, Workflow, TaskResult, WorkflowEvent, DotVisitor
 
 __author__ = 'Juan'
 
@@ -85,7 +86,7 @@ class TestWorkflowEngine(TestCase):
         w2.complete_by_id(async_task.uuid)
         assert_that(observer2.get(WorkflowEvent.NODE_EXECUTE), has_item(node3))
 
-    def test_loop(self):
+    def test_full_example(self):
         workflow_base = WorkflowBaseDouble()
         workflow_factory = WorkflowFactory()
         event_processor = EventProcessor(workflow_base, workflow_factory)
@@ -114,6 +115,10 @@ class TestWorkflowEngine(TestCase):
 
         gen_test_case.connect(Transition(end))
 
+        visitor = DotVisitor()
+        start.accept(visitor)
+        with open("graph.dot", 'w') as f:
+            f.write(visitor.print_it())
 #        observer = ObserverDouble()
 #        w = Workflow({start.uuid: start}, {}, end, observer)
 #        w.run()
@@ -126,3 +131,8 @@ class TestWorkflowEngine(TestCase):
         #        email_receiver.inject("")
         #        # -> workflow 1235.. started by receiving email #blah
         #        # -> get_workflow_by_update_id
+
+    def test_and_node_and_loop(self):
+        start = NodeSpec("start")
+        nodeA = NodeSpec("nodeA")
+        nodeB = NodeSpec("nodeB")
