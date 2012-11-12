@@ -29,11 +29,38 @@ class ObserverDouble(object):
         self.notifications = {}
 
     def notify(self, event, data):
-        #print "%s node %s" % (event, data)
+        # print "%s node %s" % (event, data)
         self.notifications.setdefault(event, []).append(data)
 
     def get(self, event):
         return self.notifications.get(event, [])
+
+
+class EmailReceiverDouble(object):
+    def inject(self, email):
+        pass
+
+
+class EventProcessor(object):
+    def __init__(self, workflow_base, workflow_factory):
+        self.workflow_factory = workflow_factory
+        self.workflow_base = workflow_base
+
+    def process(self, event):
+        pass
+
+
+class EmailReceivedEvent(object):
+    def apply(self, workflow):
+        pass
+
+
+class WorkflowBaseDouble(object):
+    pass
+
+
+class WorkflowFactory(object):
+    pass
 
 
 class TestWorkflowEngine(TestCase):
@@ -59,6 +86,43 @@ class TestWorkflowEngine(TestCase):
         assert_that(observer2.get(WorkflowEvent.NODE_EXECUTE), has_item(node3))
 
     def test_loop(self):
-        start = NodeSpec("first")
+        workflow_base = WorkflowBaseDouble()
+        workflow_factory = WorkflowFactory()
+        event_processor = EventProcessor(workflow_base, workflow_factory)
+        event_processor.process(EmailReceivedEvent())
 
+        start = NodeSpec("start")
+        wait_for_imp_mail = NodeSpec("wait_for_imp_mail")
+        wait_for_target_mail = NodeSpec("wait_for_target_mail")
+        get_target_os = NodeSpec("get_target_os")
+        reopen_os_ticket = NodeSpec("reopen_os_ticket")
+        get_imp = NodeSpec("get_imp")
+        gen_test_case = NodeSpec("gen_test_cases")
         end = NodeSpec("end")
+
+        start.connect(Transition(target_node=wait_for_imp_mail))
+        start.connect(Transition(target_node=wait_for_target_mail))
+
+        wait_for_imp_mail.connect(Transition(target_node=get_imp))
+        wait_for_target_mail.connect(Transition(target_node=get_target_os))
+
+        get_target_os.connect(Transition(target_node=gen_test_case))
+        get_target_os.connect(Transition(target_node=reopen_os_ticket))
+        reopen_os_ticket.connect(Transition(target_node=wait_for_target_mail))
+
+        get_imp.connect(Transition(target_node=gen_test_case))
+
+        gen_test_case.connect(Transition(end))
+
+#        observer = ObserverDouble()
+#        w = Workflow({start.uuid: start}, {}, end, observer)
+#        w.run()
+
+        #        email_receiver = EmailReceiverDouble()
+        #        #app = App(email_receiver)
+        #        start = NodeSpec("first")
+        #
+        #        end = NodeSpec("end")
+        #        email_receiver.inject("")
+        #        # -> workflow 1235.. started by receiving email #blah
+        #        # -> get_workflow_by_update_id

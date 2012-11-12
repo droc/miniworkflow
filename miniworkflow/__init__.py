@@ -4,7 +4,7 @@ __author__ = 'Juan'
 
 class MiniWorkflowProgram(object):
     def __init__(self, node):
-        self.active = {node}
+        self.active = set([node])
 
 
 #class NodeState:
@@ -43,7 +43,6 @@ class TaskResult(object):
 
 
 class NodeSpec(object):
-
     def __repr__(self):
         return "<%s '%s' at 0x%x>" % (self.__class__.__name__, self.description, id(self))
 
@@ -83,7 +82,7 @@ class NodeSpec(object):
 
 
 class Transition(object):
-    def __init__(self, condition, target_node):
+    def __init__(self, target_node, condition=None):
         self.condition = condition
         self.target_node = target_node
 
