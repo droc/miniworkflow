@@ -1,26 +1,7 @@
 from Queue import Queue
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item
-from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, WorkflowEvent, DotVisitor
-
-
-#class ConditionDouble(object):
-#    def __init__(self):
-#        self.canned_response = True
-#
-#    def eval(self, *args):
-#        return self.canned_response
-
-
-#class AsyncTask(object):
-#    def __init__(self):
-#        self.uuid = None
-#
-#    def execute(self, node, context):
-#        self.uuid = node.uuid
-#        #print "Async task starting"
-#        #print "uuid: %s" % self.uuid
-#        return TaskResult.WAIT
+from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, DotVisitor
 
 
 class EmailReceiverDouble(object):
@@ -88,12 +69,13 @@ class TestWorkflowEngine(TestCase):
         node1.connect(Transition(condition=lambda *_: True, target_node=node2))
         w = MiniWorkflow(start_node=node1)
         w.run()
-        assert_that(w.observer.get(WorkflowEvent.NODE_EXECUTE), has_length(2))
-        assert_that(w.observer.get(WorkflowEvent.NODE_WAIT), has_length(1))
+        assert_that(w.executed_trace, has_length(1))
+        assert_that(w.waiting_list, has_length(1))
         w2 = MiniWorkflow(start_node=node1)
         w2.set_state(w.get_state())
         w2.complete_by_uuid(q.get(), "")
-        assert_that(w2.observer.get(WorkflowEvent.NODE_EXECUTE), has_item(node3))
+        w2.run(5)
+        assert_that(w2.executed_trace, has_item(node3.uuid()))
 
     def test_and_node_and_loop(self):
         workflow_base = WorkflowBaseDouble()
@@ -107,7 +89,7 @@ class TestWorkflowEngine(TestCase):
         get_target_os = Node("get_target_os")
         reopen_os_ticket = Node("reopen_os_ticket")
         get_imp = Node("get_imp")
-        gen_test_case = Node("gen_test_cases")
+        gen_test_case = Node("gen_test_cases", activation_policy=AndActivationPolicy())
         end = Node("end")
 
         start.connect(Transition(target_node=wait_for_imp_mail))
@@ -117,7 +99,7 @@ class TestWorkflowEngine(TestCase):
         wait_for_target_mail.connect(Transition(target_node=get_target_os))
 
         get_target_os.connect(Transition(target_node=gen_test_case))
-        get_target_os.connect(Transition(target_node=reopen_os_ticket))
+        get_target_os.connect(Transition(target_node=reopen_os_ticket, condition=lambda *_:False))
         reopen_os_ticket.connect(Transition(target_node=wait_for_target_mail))
 
         get_imp.connect(Transition(target_node=gen_test_case))
@@ -129,23 +111,23 @@ class TestWorkflowEngine(TestCase):
         with open("graph.dot", 'w') as f:
             f.write(visitor.print_it())
         w = MiniWorkflow(start)
-        w.run()
-        assert_that(w.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
+        w.run(50)
+        assert_that(w.executed_trace, equal_to(['start', 'wait_for_imp_mail', 'wait_for_target_mail', 'get_imp', 'get_target_os', 'gen_test_cases', 'end']))
 
-            #        observer = ObserverDouble()
-            #        w = Workflow({start.uuid: start}, {}, end, observer)
-            #        w.run()
+        #        observer = ObserverDouble()
+        #        w = Workflow({start.uuid: start}, {}, end, observer)
+        #        w.run()
 
-            #        email_receiver = EmailReceiverDouble()
-            #        #app = App(email_receiver)
-            #        start = NodeSpec("first")
-            #
-            #        end = NodeSpec("end")
-            #        email_receiver.inject("")
-            #        # -> workflow 1235.. started by receiving email #blah
-            #        # -> get_workflow_by_update_id
+        #        email_receiver = EmailReceiverDouble()
+        #        #app = App(email_receiver)
+        #        start = NodeSpec("first")
+        #
+        #        end = NodeSpec("end")
+        #        email_receiver.inject("")
+        #        # -> workflow 1235.. started by receiving email #blah
+        #        # -> get_workflow_by_update_id
 
-    def test_foo(self):
+    def test_conditional_loop(self):
         external_process = ExternalProcessDouble()
         external_process.response = {'foo': {'bar': True}}
         START = Node(description="START", activation_policy=AlwaysActivatePolicy())

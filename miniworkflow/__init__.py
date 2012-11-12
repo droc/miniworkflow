@@ -99,6 +99,11 @@ def NodeIterator(workflow):
         active = workflow.active_nodes[:]
 
 
+def infinite():
+    while True:
+        yield
+
+
 class MiniWorkflow(BaseVisitor):
     def collect_nodes(self, start_node):
         start_node.accept(self)
@@ -153,8 +158,15 @@ class MiniWorkflow(BaseVisitor):
         node = self.fetch()
         self.execute(node)
 
-    def run(self):
-        while True:
+    def __run_iterator(self, max_steps):
+        if max_steps:
+            iterator = xrange(max_steps)
+        else:
+            iterator = infinite()
+        return iterator
+
+    def run(self, max_steps = None):
+        for _ in self.__run_iterator(max_steps):
             try:
                 self.step()
             except StopIteration:
