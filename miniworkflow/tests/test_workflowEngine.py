@@ -1,7 +1,7 @@
 from Queue import Queue
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item
-from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, DotVisitor
+from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy
 
 
 class EmailReceiverDouble(object):
@@ -106,10 +106,10 @@ class TestWorkflowEngine(TestCase):
 
         gen_test_case.connect(Transition(end))
 
-        visitor = DotVisitor()
-        start.accept(visitor)
-        with open("graph.dot", 'w') as f:
-            f.write(visitor.print_it())
+#        visitor = DotVisitor()
+#        start.accept(visitor)
+#        with open("graph.dot", 'w') as f:
+#            f.write(visitor.print_it())
         w = MiniWorkflow(start)
         w.run(50)
         assert_that(w.executed_trace, equal_to(['start', 'wait_for_imp_mail', 'wait_for_target_mail', 'get_imp', 'get_target_os', 'gen_test_cases', 'end']))
