@@ -86,11 +86,12 @@ class TestWorkflowEngine(TestCase):
         node3.set_decomposition_factory(ExternalProcessDouble())
         node2.connect(Transition(condition=lambda *_: True, target_node=node3))
         node1.connect(Transition(condition=lambda *_: True, target_node=node2))
-        w = MiniWorkflow(start_node=node1, active_nodes={node1.uuid: node1})
+        w = MiniWorkflow(start_node=node1)
         w.run()
         assert_that(w.observer.get(WorkflowEvent.NODE_EXECUTE), has_length(2))
         assert_that(w.observer.get(WorkflowEvent.NODE_WAIT), has_length(1))
-        w2 = MiniWorkflow(start_node=node1, active_nodes=w.active_nodes, state=w.state)
+        w2 = MiniWorkflow(start_node=node1)
+        w2.set_state(w.get_state())
         w2.complete_by_uuid(q.get(), "")
         assert_that(w2.observer.get(WorkflowEvent.NODE_EXECUTE), has_item(node3))
 
@@ -127,6 +128,9 @@ class TestWorkflowEngine(TestCase):
         start.accept(visitor)
         with open("graph.dot", 'w') as f:
             f.write(visitor.print_it())
+        w = MiniWorkflow(start)
+        w.run()
+        assert_that(w.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
 
             #        observer = ObserverDouble()
             #        w = Workflow({start.uuid: start}, {}, end, observer)
@@ -165,12 +169,15 @@ class TestWorkflowEngine(TestCase):
 
         queue = Queue()
         N2.set_decomposition_factory(QueueTaskDecomposition(queue)) # in practice, this is a queue name in a broker
-        w = MiniWorkflow(START, active_nodes={START.uuid(): START})
+        w = MiniWorkflow(START)
         w.run()
         assert_that(w.executed_trace, equal_to(['START', 'N1']))
-        w.complete_by_uuid(queue.get(), "Some external result")
-        [w.step() for _ in range(3)]
+
+        continuation = MiniWorkflow(START)
+        continuation.set_state(w.get_state())
+        continuation.complete_by_uuid(queue.get(), "Some external result")
+        [continuation.step() for _ in range(3)]
         external_process.response = {'foo': {'bar': False}}
-        [w.step() for _ in range(3)]
-        assert_that(w.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
+        [continuation.step() for _ in range(3)]
+        assert_that(continuation.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
 
