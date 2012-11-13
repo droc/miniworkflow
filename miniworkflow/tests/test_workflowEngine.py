@@ -2,8 +2,7 @@ from Queue import Queue
 from StringIO import StringIO
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item, is_not, starts_with
-from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy,\
-    WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
+from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
 from miniworkflow.decomposition import QueueTaskDecomposition
 from miniworkflow.tests.test_doubles.external_process_double import ExternalProcessDouble
 from miniworkflow.tests.test_doubles.workflow_base_double import WorkflowBaseDouble
@@ -55,10 +54,6 @@ class TestWorkflowEngine(TestCase):
 
         gen_test_case.connect(Transition(end))
 
-        #        visitor = DotVisitor()
-        #        start.accept(visitor)
-        #        with open("graph.dot", 'w') as f:
-        #            f.write(visitor.print_it())
         w = MiniWorkflow(start)
         w.run(50)
         assert_that(w.executed_trace, equal_to(
@@ -76,12 +71,12 @@ class TestWorkflowEngine(TestCase):
     def build_workflow_def(self):
         self.external_process_double = ExternalProcessDouble()
         self.external_process_double.response = {'foo': {'bar': True}}
-        START = Node(description="START", activation_policy=AlwaysActivatePolicy())
-        N1 = Node(description="N1", activation_policy=AlwaysActivatePolicy())
-        N2 = Node(description="N2", activation_policy=AlwaysActivatePolicy())
+        START = Node(description="START")
+        N1 = Node(description="N1")
+        N2 = Node(description="N2")
         N_AND = Node(description="AND", activation_policy=AndActivationPolicy())
-        N3 = Node(description="N3", activation_policy=AlwaysActivatePolicy())
-        END = Node(description="END", activation_policy=AlwaysActivatePolicy())
+        N3 = Node(description="N3")
+        END = Node(description="END")
         N3.set_decomposition_factory(self.external_process_double)
         START.connect(Transition(N1))
         START.connect(Transition(N2))
