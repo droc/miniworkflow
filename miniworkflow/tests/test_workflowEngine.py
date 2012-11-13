@@ -1,34 +1,21 @@
 from Queue import Queue
 from unittest import TestCase
-from hamcrest import assert_that, equal_to, has_length, has_item
-from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy
-
-
-class EmailReceiverDouble(object):
-    def inject(self, email):
-        pass
-
-
-class EventProcessor(object):
-    def __init__(self, workflow_base, workflow_factory):
-        self.workflow_factory = workflow_factory
-        self.workflow_base = workflow_base
-
-    def process(self, event):
-        pass
-
-
-class EmailReceivedEvent(object):
-    def apply(self, workflow):
-        pass
+from hamcrest import assert_that, equal_to, has_length, has_item, is_not
+from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, WorkflowNotFound, WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
 
 
 class WorkflowBaseDouble(object):
-    pass
+    def __init__(self, workflow_dict):
+        self.workflow_dict = workflow_dict
 
+    def get_workflow(self, workflow_id):
+        try:
+            return self.workflow_dict[workflow_id]
+        except KeyError:
+            raise WorkflowNotFound(workflow_id)
 
-class WorkflowFactory(object):
-    pass
+    def add_workflow(self, workflow_id, w):
+        self.workflow_dict[workflow_id] = w
 
 
 class QueueTaskDecomposition(object):
@@ -38,7 +25,7 @@ class QueueTaskDecomposition(object):
     def get_instance(self):
         return self
 
-    def execute(self, node, workflow):
+    def execute(self, node, _):
         self.task_queue.put(node.uuid())
         return TaskResult.WAIT
 
@@ -50,8 +37,8 @@ class ExternalProcessDouble(object):
     def get_instance(self):
         return self
 
-    def execute(self, node, workflow):
-        workflow.update_state(self.response)
+    def execute(self, _, workflow):
+        workflow.update_workflow_variables(self.response)
         return TaskResult.COMPLETED
 
 
@@ -78,11 +65,6 @@ class TestWorkflowEngine(TestCase):
         assert_that(w2.executed_trace, has_item(node3.uuid()))
 
     def test_and_node_and_loop(self):
-        workflow_base = WorkflowBaseDouble()
-        workflow_factory = WorkflowFactory()
-        event_processor = EventProcessor(workflow_base, workflow_factory)
-        event_processor.process(EmailReceivedEvent())
-
         start = Node("start")
         wait_for_imp_mail = Node("wait_for_imp_mail")
         wait_for_target_mail = Node("wait_for_target_mail")
@@ -99,67 +81,108 @@ class TestWorkflowEngine(TestCase):
         wait_for_target_mail.connect(Transition(target_node=get_target_os))
 
         get_target_os.connect(Transition(target_node=gen_test_case))
-        get_target_os.connect(Transition(target_node=reopen_os_ticket, condition=lambda *_:False))
+        get_target_os.connect(Transition(target_node=reopen_os_ticket, condition=lambda *_: False))
         reopen_os_ticket.connect(Transition(target_node=wait_for_target_mail))
 
         get_imp.connect(Transition(target_node=gen_test_case))
 
         gen_test_case.connect(Transition(end))
 
-#        visitor = DotVisitor()
-#        start.accept(visitor)
-#        with open("graph.dot", 'w') as f:
-#            f.write(visitor.print_it())
+        #        visitor = DotVisitor()
+        #        start.accept(visitor)
+        #        with open("graph.dot", 'w') as f:
+        #            f.write(visitor.print_it())
         w = MiniWorkflow(start)
         w.run(50)
-        assert_that(w.executed_trace, equal_to(['start', 'wait_for_imp_mail', 'wait_for_target_mail', 'get_imp', 'get_target_os', 'gen_test_cases', 'end']))
+        assert_that(w.executed_trace, equal_to(
+            ['start', 'wait_for_imp_mail', 'wait_for_target_mail', 'get_imp', 'get_target_os', 'gen_test_cases',
+             'end']))
 
-        #        observer = ObserverDouble()
-        #        w = Workflow({start.uuid: start}, {}, end, observer)
-        #        w.run()
-
-        #        email_receiver = EmailReceiverDouble()
-        #        #app = App(email_receiver)
-        #        start = NodeSpec("first")
-        #
-        #        end = NodeSpec("end")
-        #        email_receiver.inject("")
-        #        # -> workflow 1235.. started by receiving email #blah
-        #        # -> get_workflow_by_update_id
-
-    def test_conditional_loop(self):
-        external_process = ExternalProcessDouble()
-        external_process.response = {'foo': {'bar': True}}
+    def build_workflow_def(self):
+        self.external_process_double = ExternalProcessDouble()
+        self.external_process_double.response = {'foo': {'bar': True}}
         START = Node(description="START", activation_policy=AlwaysActivatePolicy())
         N1 = Node(description="N1", activation_policy=AlwaysActivatePolicy())
         N2 = Node(description="N2", activation_policy=AlwaysActivatePolicy())
         N_AND = Node(description="AND", activation_policy=AndActivationPolicy())
         N3 = Node(description="N3", activation_policy=AlwaysActivatePolicy())
         END = Node(description="END", activation_policy=AlwaysActivatePolicy())
-        N3.set_decomposition_factory(external_process)
-
+        N3.set_decomposition_factory(self.external_process_double)
         START.connect(Transition(N1))
         START.connect(Transition(N2))
-
         N1.connect(Transition(N_AND))
         N2.connect(Transition(N_AND))
-
         N_AND.connect(Transition(N3))
+        N3.connect(Transition(N1, lambda workflow, node: workflow.workflow_variables['foo']['bar']))
+        N3.connect(Transition(END, lambda workflow, node: not workflow.workflow_variables['foo']['bar']))
+        self.queue_tasks_N2 = Queue()
+        N2.set_decomposition_factory(
+            QueueTaskDecomposition(self.queue_tasks_N2)) # in practice, this is a queue name in a broker
+        return START
 
-        N3.connect(Transition(N1, lambda workflow, node: workflow.state['foo']['bar']))
-        N3.connect(Transition(END, lambda workflow, node: not workflow.state['foo']['bar']))
+    def test_conditional_loop(self):
+        START = self.build_workflow_def()
 
-        queue = Queue()
-        N2.set_decomposition_factory(QueueTaskDecomposition(queue)) # in practice, this is a queue name in a broker
         w = MiniWorkflow(START)
+        #w.observer.subscribe(WorkflowEvent.NODE_EXECUTE, WorkflowEventPublisher("workflow_ticketing"))
         w.run()
         assert_that(w.executed_trace, equal_to(['START', 'N1']))
 
         continuation = MiniWorkflow(START)
+        #continuation.observer.subscribe(WorkflowEvent.NODE_EXECUTE, WorkflowEventPublisher("workflow_ticketing"))
         continuation.set_state(w.get_state())
-        continuation.complete_by_uuid(queue.get(), "Some external result")
+        continuation.complete_by_uuid(self.queue_tasks_N2.get(), "Some external result")
         [continuation.step() for _ in range(3)]
-        external_process.response = {'foo': {'bar': False}}
+        self.external_process_double.response = {'foo': {'bar': False}}
         [continuation.step() for _ in range(3)]
         assert_that(continuation.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
 
+    def get_gen_test_cases_example_def(self):
+        start = Node("start")
+        wait_for_imp_mail = Node("wait_for_imp_mail")
+        wait_for_target_mail = Node("wait_for_target_mail")
+        get_target_os = Node("get_target_os")
+        reopen_os_ticket = Node("reopen_os_ticket")
+        get_imp = Node("get_imp")
+        gen_test_case = Node("gen_test_cases", activation_policy=AndActivationPolicy())
+        end = Node("end")
+        start.connect(Transition(target_node=wait_for_imp_mail))
+        start.connect(Transition(target_node=wait_for_target_mail))
+        wait_for_imp_mail.connect(Transition(target_node=get_imp))
+        wait_for_target_mail.connect(Transition(target_node=get_target_os))
+        wait_for_target_mail.set_decomposition_factory(WaitForExternalEvent())
+        get_target_os.connect(Transition(target_node=gen_test_case))
+        get_target_os.connect(Transition(target_node=reopen_os_ticket, condition=lambda *_: False))
+        reopen_os_ticket.connect(Transition(target_node=wait_for_target_mail))
+        get_imp.connect(Transition(target_node=gen_test_case))
+        gen_test_case.connect(Transition(end))
+        return start
+
+    def test_processor_resumes_workflow_with_email(self):
+        workflow_def = self.get_gen_test_cases_example_def()
+
+        WORKFLOW_ID = 1
+        WORKFLOW_ID2 = 2
+
+        w1 = MiniWorkflow(workflow_def)
+        w2 = MiniWorkflow(workflow_def)
+        w1.run()
+        w2.run()
+        workflow_base = WorkflowBaseDouble({
+            WORKFLOW_ID: w1,
+            WORKFLOW_ID2: w2
+        })
+        assert_that(w1.executed_trace, is_not(has_item('wait_for_target_mail')))
+        workflow_factory = WorkflowFactory(workflow_def)
+        event_processor = EventProcessor(workflow_base, workflow_factory)
+        event_processor.process(EmailReceivedEvent(WORKFLOW_ID, 'wait_for_target_mail'))
+        assert_that(w1.executed_trace, has_item('wait_for_target_mail'))
+
+    def test_processor_creates_instance_if_none_exists(self):
+        workflow_def = self.get_gen_test_cases_example_def()
+        WORKFLOW_ID = 1
+        workflow_base = WorkflowBaseDouble({})
+        workflow_factory = WorkflowFactory(workflow_def)
+        event_processor = EventProcessor(workflow_base, workflow_factory)
+        event_processor.process(EmailReceivedEvent(WORKFLOW_ID, 'wait_for_target_mail'))
+        assert_that(workflow_base.get_workflow(WORKFLOW_ID).executed_trace, has_item('wait_for_target_mail'))

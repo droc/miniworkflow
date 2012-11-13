@@ -79,14 +79,17 @@ class WorkflowEvent(object):
 
 class WorkflowObserver(object):
     def __init__(self):
-        self.notifications = {}
+        self.subscribers = {}
 
     def notify(self, event, data):
-        print "%s node %s" % (event, data)
-        self.notifications.setdefault(event, []).append(data)
+        for interested_party in self.subscribers.get(event, []):
+            interested_party.notify(event, data)
 
     def get(self, event):
-        return self.notifications.get(event, [])
+        return self.subscribers.get(event, [])
+
+    def subscribe(self, event, we):
+        self.subscribers.setdefault(event, []).append(we)
 
 
 def NodeIterator(workflow):
@@ -108,9 +111,9 @@ class MiniWorkflow(BaseVisitor):
     def collect_nodes(self, start_node):
         start_node.accept(self)
 
-    def __init__(self, start_node, state=None):
+    def __init__(self, start_node, workflow_variables=None):
         super(MiniWorkflow, self).__init__()
-        self.state = state or {}
+        self.workflow_variables = workflow_variables or {}
         self.start_node = start_node
         self.activation_trace = []
         self.waiting_trace = []
@@ -120,7 +123,8 @@ class MiniWorkflow(BaseVisitor):
         self.node_iterator = NodeIterator(self)
         self.observer = WorkflowObserver()
         self.__nodes = None
-        self.__state_keys = ['state', 'activation_trace', 'waiting_trace', 'executed_trace', 'waiting_list',
+        self.__state_keys = ['workflow_variables', 'activation_trace', 'waiting_trace', 'executed_trace',
+                             'waiting_list',
                              'active_nodes']
 
     def get_node(self):
@@ -142,8 +146,8 @@ class MiniWorkflow(BaseVisitor):
     def _visit_node(self, node):
         self.__nodes[node.uuid()] = node
 
-    def update_state(self, update):
-        self.state.update(update)
+    def update_workflow_variables(self, update):
+        self.workflow_variables.update(update)
 
     def has_executed(self, a_node):
         return (a_node.uuid() in self.executed_trace and
@@ -165,7 +169,7 @@ class MiniWorkflow(BaseVisitor):
             iterator = infinite()
         return iterator
 
-    def run(self, max_steps = None):
+    def run(self, max_steps=None):
         for _ in self.__run_iterator(max_steps):
             try:
                 self.step()
@@ -191,7 +195,7 @@ class MiniWorkflow(BaseVisitor):
                 self.activate(transition.target_node)
 
     def execute(self, node):
-        self.observer.notify("executing", node)
+        self.observer.notify(WorkflowEvent.NODE_EXECUTE, node)
         node.execute(self)
 
     def complete_by_uuid(self, uuid, data):
@@ -224,9 +228,6 @@ class Node(object):
         visitor.visit_node(self)
         for t in self.out_transitions:
             t.accept(visitor)
-
-    def execute_transitions(self, context):
-        pass
 
     def uuid(self):
         return self.description
@@ -266,10 +267,61 @@ class AndActivationPolicy(object):
     """
 
     def can_activate(self, node, workflow):
-        print node, node.in_transitions
         return all(workflow.has_executed(t.source_node) for t in node.in_transitions)
 
 
 class AlwaysActivatePolicy(object):
     def can_activate(self, *_):
         return True
+
+
+class WorkflowNotFound(Exception):
+    pass
+
+
+class EventProcessor(object):
+    def __init__(self, workflow_base, workflow_factory):
+        self.workflow_factory = workflow_factory
+        self.workflow_base = workflow_base
+
+    def process(self, event):
+        workflow_id = event.get_workflow_id()
+        try:
+            workflow_instance = self.workflow_base.get_workflow(workflow_id)
+        except WorkflowNotFound:
+            workflow_instance = self.workflow_factory.create_instance()
+            workflow_instance.run()
+            self.workflow_base.add_workflow(workflow_id, workflow_instance)
+
+
+        event.apply(workflow_instance)
+
+
+class EmailReceivedEvent(object):
+    def __init__(self, workflow_id, uuid):
+        self.workflow_id = workflow_id
+        self.uuid = uuid
+
+    def get_workflow_id(self):
+        # let' s assume for now workflow_id is == to some value in the email
+        return self.workflow_id
+
+    def apply(self, workflow):
+        workflow.complete_by_uuid(self.uuid, {"os_list": [(123, 'base'), (234, 'base2')]})
+        workflow.run()
+
+
+class WorkflowFactory(object):
+    def __init__(self, spec):
+        self.spec = spec
+
+    def create_instance(self):
+        return MiniWorkflow(self.spec)
+
+
+class WaitForExternalEvent(object):
+    def get_instance(self):
+        return self
+
+    def execute(self, node, workflow):
+        return TaskResult.WAIT
