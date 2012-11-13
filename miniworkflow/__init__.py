@@ -48,12 +48,6 @@ class BaseVisitor(object):
 
 
 class DotVisitor(BaseVisitor):
-    def _visit_transition(self, t):
-        print t
-
-    def _visit_node(self, n):
-        print n
-
     def print_it(self):
         nodes = []
         arcs = []
@@ -260,6 +254,11 @@ class Node(object):
     def process_async_completion(self, workflow, data):
         pass
 
+    def write_graph(self, g):
+        visitor = DotVisitor()
+        self.accept(visitor)
+        g.write(visitor.print_it())
+
 
 class AndActivationPolicy(object):
     """
@@ -292,7 +291,6 @@ class EventProcessor(object):
             workflow_instance = self.workflow_factory.create_instance()
             workflow_instance.run()
             self.workflow_base.add_workflow(workflow_id, workflow_instance)
-
 
         event.apply(workflow_instance)
 
