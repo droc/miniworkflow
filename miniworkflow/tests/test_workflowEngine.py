@@ -1,21 +1,10 @@
 from Queue import Queue
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item, is_not
-from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, WorkflowNotFound, WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
-
-
-class WorkflowBaseDouble(object):
-    def __init__(self, workflow_dict):
-        self.workflow_dict = workflow_dict
-
-    def get_workflow(self, workflow_id):
-        try:
-            return self.workflow_dict[workflow_id]
-        except KeyError:
-            raise WorkflowNotFound(workflow_id)
-
-    def add_workflow(self, workflow_id, w):
-        self.workflow_dict[workflow_id] = w
+from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, \
+    WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
+from miniworkflow.tests.test_doubles.external_process_double import ExternalProcessDouble
+from miniworkflow.tests.test_doubles.workflow_base_double import WorkflowBaseDouble
 
 
 class QueueTaskDecomposition(object):
@@ -28,18 +17,6 @@ class QueueTaskDecomposition(object):
     def execute(self, node, _):
         self.task_queue.put(node.uuid())
         return TaskResult.WAIT
-
-
-class ExternalProcessDouble(object):
-    def __init__(self):
-        self.response = {}
-
-    def get_instance(self):
-        return self
-
-    def execute(self, _, workflow):
-        workflow.update_workflow_variables(self.response)
-        return TaskResult.COMPLETED
 
 
 class TestWorkflowEngine(TestCase):
