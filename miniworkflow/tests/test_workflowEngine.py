@@ -1,22 +1,11 @@
 from Queue import Queue
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item, is_not
-from miniworkflow import Transition, TaskResult, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, \
+from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, \
     WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
+from miniworkflow.decomposition import QueueTaskDecomposition
 from miniworkflow.tests.test_doubles.external_process_double import ExternalProcessDouble
 from miniworkflow.tests.test_doubles.workflow_base_double import WorkflowBaseDouble
-
-
-class QueueTaskDecomposition(object):
-    def __init__(self, task_queue):
-        self.task_queue = task_queue
-
-    def get_instance(self):
-        return self
-
-    def execute(self, node, _):
-        self.task_queue.put(node.uuid())
-        return TaskResult.WAIT
 
 
 class TestWorkflowEngine(TestCase):
