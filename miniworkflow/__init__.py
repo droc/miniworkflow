@@ -25,10 +25,12 @@ class Transition(object):
 class BaseVisitor(object):
     def __init__(self):
         self.visited = set()
+        self.visited_list = []
 
     def visit_transition(self, t):
         if not t in self.visited:
             self.visited.add(t)
+            self.visited_list.append(t)
             self._visit_transition(t)
             return True
         return False
@@ -36,6 +38,7 @@ class BaseVisitor(object):
     def visit_node(self, n):
         if not n in self.visited:
             self.visited.add(n)
+            self.visited_list.append(n)
             self._visit_node(n)
             return True
         return False
@@ -51,14 +54,15 @@ class DotVisitor(BaseVisitor):
     def print_it(self):
         nodes = []
         arcs = []
-        for n in self.visited:
+        for n in self.visited_list:
             if not isinstance(n, Node):
                 continue
             nodes.append(n.get_digraph_node())
             arcs.append(n.get_digraph_rels())
 
         d = "digraph Test {"
-        d += " graph [rankdir = LR];"
+        d += " graph [rankdir = LR,ordering=out];\n"
+        d += " node [shape=record];\n"
         d += "".join(nodes)
         d += "".join(arcs)
         d += "}"
@@ -197,6 +201,13 @@ class MiniWorkflow(BaseVisitor):
         self.node_iterator = NodeIterator(self)
 
 
+def to_dot_record(l):
+    r = []
+    for i, item in enumerate(l):
+        r.append("<f%d> %s" % (i, item))
+    return "{" + "|".join(r) + "}"
+
+
 class Node(object):
     def __init__(self, description, activation_policy=None):
         self.activation_policy = activation_policy or AlwaysActivatePolicy()
@@ -206,7 +217,8 @@ class Node(object):
         self.decomposition_factory = None
 
     def get_digraph_node(self):
-        return self.description + "\n"
+        label = self.activation_policy.decorate_digraph_node([self.description])
+        return self.description + " [label=\"%s\"] \n" % to_dot_record(label)
 
     def get_digraph_rels(self):
         r = []
@@ -268,10 +280,16 @@ class AndActivationPolicy(object):
     def can_activate(self, node, workflow):
         return all(workflow.has_executed(t.source_node) for t in node.in_transitions)
 
+    def decorate_digraph_node(self, label_list):
+        return ["AND"] + label_list
+
 
 class AlwaysActivatePolicy(object):
     def can_activate(self, *_):
         return True
+
+    def decorate_digraph_node(self, label_list):
+        return label_list
 
 
 class WorkflowNotFound(Exception):

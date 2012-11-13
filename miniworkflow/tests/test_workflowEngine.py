@@ -2,7 +2,7 @@ from Queue import Queue
 from StringIO import StringIO
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item, is_not, starts_with
-from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy, \
+from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, AlwaysActivatePolicy,\
     WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
 from miniworkflow.decomposition import QueueTaskDecomposition
 from miniworkflow.tests.test_doubles.external_process_double import ExternalProcessDouble
@@ -64,6 +64,9 @@ class TestWorkflowEngine(TestCase):
         assert_that(w.executed_trace, equal_to(
             ['start', 'wait_for_imp_mail', 'wait_for_target_mail', 'get_imp', 'get_target_os', 'gen_test_cases',
              'end']))
+        with open("graph.dot", 'w') as f:
+            start.write_graph(f)
+
     def test_gives_a_graph_representation_of_itself(self):
         start = self.build_workflow_def()
         g = StringIO()
