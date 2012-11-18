@@ -13,7 +13,6 @@ class Transition(object):
         self.source_node = node
         self.target_node.in_transitions.append(self)
 
-
     def accept(self, visitor):
         if visitor.visit_transition(self):
             self.target_node.accept(visitor)
@@ -73,6 +72,7 @@ class WorkflowEvent(object):
     NODE_WAIT = "node_wait"
     NODE_EXECUTE = "node_execute"
     NODE_COMPLETED = "node_completed"
+    NODE_SET_ACTIVE = "activating"
 
 
 class WorkflowObserver(object):
@@ -175,7 +175,7 @@ class MiniWorkflow(BaseVisitor):
                 break
 
     def activate(self, a_node):
-        self.observer.notify("activating", a_node)
+        self.observer.notify(WorkflowEvent.NODE_SET_ACTIVE, a_node)
         self.activation_trace.append(a_node.uuid())
         self.active_nodes.append(a_node.uuid())
 
