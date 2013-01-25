@@ -11,8 +11,8 @@ class WorkflowEventPublisher(object):
         message = {'event': event, 'data': node.description}
         serialized_message = simplejson.dumps(message)
 
-        self.get_channel().basic_publish(exchange=self.exchange,
-            routing_key='',
+        self.get_channel().basic_publish(exchange='amq.topic',
+            routing_key='workflow_ticketing',
             body=serialized_message)
 #        print " [x] Sent %r" % (message,)
 
@@ -23,6 +23,4 @@ class WorkflowEventPublisher(object):
         if not self.__channel:
             self.__connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
             self.__channel = self.__connection.channel()
-
-            self.__channel.exchange_declare(exchange=self.exchange, exchange_type='fanout')
         return self.__channel
