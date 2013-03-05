@@ -2,7 +2,8 @@ from Queue import Queue
 from StringIO import StringIO
 from unittest import TestCase
 from hamcrest import assert_that, equal_to, has_length, has_item, is_not, starts_with
-from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent
+from miniworkflow import Transition, MiniWorkflow, Node, AndActivationPolicy, WorkflowFactory, EventProcessor, EmailReceivedEvent, WaitForExternalEvent, WorkflowEvent
+from miniworkflow.bus import WorkflowEventPublisher
 from miniworkflow.decomposition import QueueTaskDecomposition
 from miniworkflow.tests.test_doubles.external_process_double import ExternalProcessDouble
 from miniworkflow.tests.test_doubles.workflow_base_double import WorkflowBaseDouble
@@ -90,19 +91,25 @@ class TestWorkflowEngine(TestCase):
             QueueTaskDecomposition(self.queue_tasks_N2)) # in practice, this is a queue name in a broker
         return START
 
+    def subscribe(self, w):
+        w.observer.subscribe(WorkflowEvent.NODE_COMPLETED, WorkflowEventPublisher("workflow_ticketing"))
+        w.observer.subscribe(WorkflowEvent.NODE_EXECUTE, WorkflowEventPublisher("workflow_ticketing"))
+        w.observer.subscribe(WorkflowEvent.NODE_SET_ACTIVE, WorkflowEventPublisher("workflow_ticketing"))
+        w.observer.subscribe(WorkflowEvent.NODE_WAIT, WorkflowEventPublisher("workflow_ticketing"))
+
     def test_conditional_loop(self):
         START = self.build_workflow_def()
 
         w = MiniWorkflow(START)
-        #w.observer.subscribe(WorkflowEvent.NODE_EXECUTE, WorkflowEventPublisher("workflow_ticketing"))
+        self.subscribe(w)
         w.run()
         assert_that(w.executed_trace, equal_to(['START', 'N1']))
 
         continuation = MiniWorkflow(START)
-        #continuation.observer.subscribe(WorkflowEvent.NODE_EXECUTE, WorkflowEventPublisher("workflow_ticketing"))
         continuation.set_state(w.get_state())
         continuation.complete_by_uuid(self.queue_tasks_N2.get(), "Some external result")
         [continuation.step() for _ in range(3)]
+        self.subscribe(continuation)
         self.external_process_double.response = {'foo': {'bar': False}}
         [continuation.step() for _ in range(3)]
         assert_that(continuation.executed_trace, equal_to(['START', 'N1', 'N2', 'AND', 'N3', 'N1', 'AND', 'N3', 'END']))
